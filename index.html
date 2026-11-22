@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>DOS Player</title>
+<link rel="stylesheet" href="https://v8.js-dos.com/latest/js-dos.css">
+<script src="https://v8.js-dos.com/latest/js-dos.js"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #111614; color: #fff; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #setup { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .panel { background: #1f2a22; border: 1px solid #3a4c3e; border-radius: 16px; padding: 20px; width: min(100%, 460px); box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  h1 { margin: 0 0 4px; font-size: 28px; font-style: italic; font-weight: 900; }
+  h1 span { color: #ffcc33; }
+  .sub { color: #a9b8ab; font-size: 13px; line-height: 1.5; margin: 0 0 12px; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #a9b8ab; margin: 14px 0 6px; }
+  .pick { display: block; border: 2px dashed #3a4c3e; border-radius: 12px; padding: 16px; text-align: center; cursor: pointer; background: #243028; font-weight: 700; }
+  .pick small { display: block; color: #a9b8ab; font-weight: 400; margin-top: 4px; }
+  .pick input { display: none; }
+  .row { display: flex; gap: 8px; margin-top: 8px; }
+  select { width: 100%; background: #29372c; color: #fff; border: 1px solid #3a4c3e; border-radius: 9px; padding: 10px; font-size: 14px; font-family: inherit; }
+  .btn { display: block; width: 100%; margin-top: 10px; padding: 13px; border: 0; border-radius: 11px; background: #ffcc33; color: #1a1a1a; font-size: 17px; font-weight: 800; cursor: pointer; font-family: inherit; }
+  .btn.alt { background: #29372c; color: #fff; border: 1px solid #3a4c3e; font-size: 14px; padding: 10px; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin-top: 12px; }
+  #info { font-size: 13px; color: #cfd8d0; margin-top: 10px; min-height: 18px; }
+  #info.err { color: #ff8a80; }
+  .keys { color: #a9b8ab; font-size: 12px; margin-top: 14px; line-height: 1.5; }
+  a { color: #ffcc33; }
+  #player { position: fixed; inset: 0; display: none; background: #000; }
+  #player.show { display: block; }
+  #dos { position: absolute; inset: 0; }
+  #bar { position: absolute; top: 8px; right: 8px; z-index: 30; display: flex; gap: 6px; }
+  #bar button { height: 36px; padding: 0 12px; border-radius: 9px; border: 0; background: rgba(0,0,0,.55); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+  #touch { position: absolute; left: 0; right: 0; bottom: 0; z-index: 20; display: none; justify-content: space-between; align-items: flex-end;
+    padding: 0 12px calc(12px + env(safe-area-inset-bottom)); pointer-events: none; }
+  #touch.show { display: flex; }
+  .pad { display: grid; gap: 8px; pointer-events: auto; }
+  .dpad { grid-template-columns: repeat(3, 62px); grid-template-rows: repeat(3, 62px); }
+  .acts { grid-template-columns: repeat(3, 66px); }
+  .k { display: flex; align-items: center; justify-content: center; border-radius: 14px; background: rgba(255,255,255,.16);
+    border: 2px solid rgba(255,255,255,.3); color: #fff; font-weight: 800; font-size: 15px; user-select: none; -webkit-user-select: none; touch-action: none; }
+  .k.big { font-size: 24px; }
+  .k.on { background: rgba(255,204,51,.55); }
+  .acts .k { height: 54px; }
+</style>
+</head>
+<body>
+<div id="setup">
+  <div class="panel">
+    <h1>DOS <span>PLAYER</span></h1>
+    <p class="sub">Play your own copy of an old DOS game, such as Race Mania, in the browser. The game files stay on this device and are never uploaded anywhere.</p>
+    <label class="pick">Choose the game as a .zip or .rar
+      <small>An archive of the game's folder (a .jsdos bundle works too)</small>
+      <input type="file" id="zipIn">
+    </label>
+    <label class="pick" id="dirPick" style="margin-top:8px">…or choose the game folder
+      <small>Desktop browsers only</small>
+      <input type="file" id="dirIn" webkitdirectory multiple>
+    </label>
+    <div id="info"></div>
+    <div id="opts" style="display:none">
+      <div class="label">Program to start</div>
+      <select id="exe"></select>
+      <div class="label">Speed</div>
+      <select id="cycles">
+        <option value="auto">Auto</option>
+        <option value="max">Fastest</option>
+        <option value="fixed 30000">Pentium (30000 cycles)</option>
+        <option value="fixed 15000">486 (15000 cycles)</option>
+        <option value="fixed 6000">386 (6000 cycles)</option>
+      </select>
+      <div class="label">CD drive</div>
+      <select id="cd"></select>
+      <div class="sub" id="cdNote" style="margin:6px 0 0"></div>
+      <div class="label">CD label (optional)</div>
+      <input id="cdLabel" maxlength="11" placeholder="Only if the game checks the CD's name" autocapitalize="characters"
+        style="width:100%;background:#29372c;color:#fff;border:1px solid #3a4c3e;border-radius:9px;padding:10px;font-size:14px;font-family:inherit">
+      <details style="margin-top:10px;font-size:12px;color:#a9b8ab">
+        <summary>Technical details</summary>
+        <div style="margin-top:6px">DOSBox start-up commands:</div>
+        <pre id="techConf" style="white-space:pre-wrap;background:#111b14;padding:8px;border-radius:8px;margin:4px 0;user-select:text"></pre>
+        <div>Settings files the page checked:</div>
+        <pre id="techRefs" style="white-space:pre-wrap;background:#111b14;padding:8px;border-radius:8px;margin:4px 0;user-select:text"></pre>
+        <div>Files in the archive:</div>
+        <pre id="techFiles" style="white-space:pre-wrap;background:#111b14;padding:8px;border-radius:8px;margin:4px 0;max-height:220px;overflow:auto;user-select:text"></pre>
+      </details>
+      <label class="check"><input type="checkbox" id="keep" checked> Keep this game and its saves on this device</label>
+      <button class="btn" id="play">Play</button>
+    </div>
+    <div id="saved" style="display:none">
+      <div class="label">Saved on this device</div>
+      <button class="btn" id="playSaved">Open</button>
+      <button class="btn alt" id="forget">Remove saved game</button>
+    </div>
+    <div class="keys">Race Mania keys: arrows to drive, Ctrl or Alt to attack, Space or Enter for action, Esc for the menu.
+      On a phone, on-screen buttons appear; turn the phone sideways for a bigger picture.<br>
+      Uses <a href="https://js-dos.com" target="_blank" rel="noopener">js-dos</a> (DOSBox). <a href="https://mariuspaukste.github.io/rally-rush/">Rally Rush</a></div>
+  </div>
+</div>
+
+<div id="player">
+  <div id="dos"></div>
+  <div id="bar"><button id="saveBtn">Save</button><button id="quitBtn">Quit</button></div>
+  <div id="touch">
+    <div class="pad dpad">
+      <div></div><div class="k big" data-key="265">▲</div><div></div>
+      <div class="k big" data-key="263">◀</div><div></div><div class="k big" data-key="262">▶</div>
+      <div></div><div class="k big" data-key="264">▼</div><div></div>
+    </div>
+    <div class="pad acts">
+      <div class="k" data-key="256">Esc</div><div class="k" data-key="89">Y</div><div class="k" data-key="78">N</div>
+      <div class="k" data-key="342">Alt</div><div class="k" data-key="341">Ctrl</div><div class="k" data-key="257">Enter</div>
+      <div></div><div></div><div class="k" data-key="32">Space</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const info = (t, err) => { $('info').textContent = t; $('info').className = err ? 'err' : ''; };
+  const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  if (isTouch) $('dirPick').style.display = 'none';
+
+  // ---------- small IndexedDB key-value store ----------
+  const db = new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open('dos-player', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    } catch (e) { rej(e); }
+  });
+  const kv = (mode, fn) => db.then(d => new Promise((res, rej) => {
+    const t = d.transaction('kv', mode), s = t.objectStore('kv'), r = fn(s);
+    t.oncomplete = () => res(r && r.result); t.onerror = () => rej(t.error);
+  }));
+  const kvGet = k => kv('readonly', s => s.get(k)).catch(() => null);
+  const kvSet = (k, v) => kv('readwrite', s => s.put(v, k)).catch(e => console.warn('save failed', e));
+  const kvDel = k => kv('readwrite', s => s.delete(k)).catch(() => {});
+
+  // ---------- reading archives ----------
+  function zipEntries(u8) {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    let e = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('That file isn\'t a .zip or .rar archive.');
+    let n = dv.getUint16(e + 10, true), off = dv.getUint32(e + 16, true);
+    if ((off === 0xffffffff || n === 0xffff) && e >= 20 && dv.getUint32(e - 20, true) === 0x07064b50) {
+      const z = Number(dv.getBigUint64(e - 12, true));
+      n = Number(dv.getBigUint64(z + 32, true)); off = Number(dv.getBigUint64(z + 48, true));
+    }
+    const out = [], utf8 = new TextDecoder('utf-8');
+    for (let k = 0; k < n && off + 46 <= u8.length; k++) {
+      if (dv.getUint32(off, true) !== 0x02014b50) break;
+      const fl = dv.getUint16(off + 28, true), el = dv.getUint16(off + 30, true), cl = dv.getUint16(off + 32, true);
+      out.push({ name: utf8.decode(u8.subarray(off + 46, off + 46 + fl)).replace(/\\/g, '/'), flags: dv.getUint16(off + 8, true),
+        method: dv.getUint16(off + 10, true), csize: dv.getUint32(off + 20, true), lho: dv.getUint32(off + 42, true) });
+      off += 46 + fl + el + cl;
+    }
+    return out;
+  }
+  async function unzip(u8) {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), files = [];
+    for (const e of zipEntries(u8)) {
+      if (e.name.endsWith('/')) continue;
+      if (e.flags & 1) throw new Error('Password-protected zips aren\'t supported.');
+      if (e.csize === 0xffffffff || e.lho === 0xffffffff) throw new Error('This zip is too big to read here. Try a .rar or a smaller zip.');
+      const start = e.lho + 30 + dv.getUint16(e.lho + 26, true) + dv.getUint16(e.lho + 28, true), data = u8.subarray(start, start + e.csize);
+      let contents;
+      if (e.method === 0) contents = data.slice();
+      else if (e.method === 8) contents = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      else throw new Error('This zip uses a compression type the page can\'t read. Re-zip it with normal settings.');
+      files.push({ path: e.name, contents });
+    }
+    return files;
+  }
+  // RAR support: the unrar library is only downloaded when a .rar is chosen
+  const UNRAR = 'https://cdn.jsdelivr.net/npm/node-unrar-js@2.0.2/';
+  async function unrar(buf) {
+    let m;
+    try { m = await import(UNRAR + '+esm'); } catch (e) { m = await import(UNRAR + 'esm/index.esm.js'); }
+    const wasm = await fetch(UNRAR + 'esm/js/unrar.wasm');
+    if (!wasm.ok) throw new Error('Could not download the RAR unpacker.');
+    const ex = await m.createExtractorFromData({ data: buf, wasmBinary: await wasm.arrayBuffer() });
+    const files = [];
+    for (const f of ex.extract().files) {
+      if (f.fileHeader.flags && f.fileHeader.flags.directory) continue;
+      if (!f.extraction) continue;
+      files.push({ path: f.fileHeader.name.replace(/\\/g, '/'), contents: f.extraction });
+    }
+    return files;
+  }
+
+  // ---------- working out how to run the game ----------
+  const SKIP = /(setup|install|instal|config|setsound|sndsetup|uninst|readme|dos4gw|pmode|cwsdpmi)/i;
+  const programs = paths => paths.filter(n => /\.(exe|com|bat)$/i.test(n) && !n.startsWith('.jsdos/'))
+    .sort((a, b) => score(a) - score(b) || a.length - b.length || a.localeCompare(b));
+  function score(n) {
+    const base = n.split('/').pop();
+    return (SKIP.test(base) ? 10 : 0) + (/race|mania|rm/i.test(base) ? -5 : 0) + (/\.exe$/i.test(n) ? 0 : 1) + n.split('/').length;
+  }
+  const dirOf = p => p.split('/').slice(0, -1).join('/');
+  const join = (...a) => a.filter(Boolean).join('/');
+  // how DOSBox would show a long name in 8.3 form (roughly)
+  function split83(s) {
+    s = s.toUpperCase();
+    const i = s.lastIndexOf('.'), raw = i > 0 ? s.slice(0, i) : s, x = i > 0 ? s.slice(i + 1) : '';
+    const b = raw.replace(/[^A-Z0-9_~!#$%&'()@^{}-]/g, '');
+    return { raw, b, x: x.replace(/[^A-Z0-9_]/g, ''), long: b !== raw || b.length > 8 || x.length > 3 };
+  }
+  function dosName(s) {
+    const n = split83(s);
+    return (n.long ? n.b.slice(0, 6) + '~1' : n.b) + (n.x ? '.' + n.x.slice(0, 3) : '');
+  }
+  function nameMatch(arch, comp) {
+    const n = split83(arch), C = comp.toUpperCase(), ext = n.x ? '.' + n.x.slice(0, 3) : '';
+    if (arch.toUpperCase() === C || n.b.slice(0, 8) + ext === C || dosName(arch) === C) return true;
+    const t = C.indexOf('~');
+    return t > 0 && n.b.startsWith(C.slice(0, t));
+  }
+  // Looks through small settings files for paths like C:\RACEMANI\ that tell us where the game expects its CD.
+  function findPathRefs(files) {
+    const refs = [], seen = new Set();
+    for (const f of files) {
+      const base = f.path.split('/').pop(), ext = (base.match(/\.([^.]+)$/) || ['', ''])[1].toLowerCase();
+      if (['exe', 'com', 'ovl', 'dll', 'txt', 'doc', 'me', 'diz', 'nfo', 'htm', 'html', 'pdf', 'wri'].includes(ext) || /readme/i.test(base)) continue;
+      if (f.contents.length > 65536) continue;
+      const text = new TextDecoder('latin1').decode(f.contents);
+      const re = /([A-Za-z]):\\((?:[A-Za-z0-9_~$!#%&@^()-]{1,8}(?:\.[A-Za-z0-9_]{1,3})?\\?){0,6})/g;
+      let m;
+      while ((m = re.exec(text))) {
+        const letter = m[1].toUpperCase();
+        if (letter === 'Z' || letter < 'C') continue;
+        const comps = m[2].split('\\').filter(Boolean);
+        const key = f.path + '|' + letter + '|' + comps.join('\\');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        refs.push({ file: f.path, letter, comps, text: letter + ':\\' + m[2],
+          cfg: /^(cfg|ini|set|cnf|dat|inf|pth|cd)$/.test(ext) || ext === '' });
+      }
+    }
+    return refs;
+  }
+  // Which folder of the archive is the one a path like C:\RACEMANI\DATA points to?
+  function resolveRef(ref, dirs, fileSet) {
+    let comps = ref.comps.slice();
+    if (comps.length && /\./.test(comps[comps.length - 1])) comps.pop(); // ends in a file name
+    if (!comps.length) return null;
+    let best = null;
+    for (const d of dirs) {
+      if (!d) continue;
+      const dc = d.split('/');
+      let k = 0;
+      while (k < comps.length && k < dc.length && nameMatch(dc[dc.length - 1 - k], comps[comps.length - 1 - k])) k++;
+      if (k === 0) continue;
+      // folders that are named in the path but sit higher up in the archive are placed above it
+      const src = d, n = [...fileSet].filter(p => p.startsWith(src + '/')).length;
+      const exact = dc[dc.length - 1].toUpperCase() === comps[comps.length - 1].toUpperCase();
+      const sc = k * 100 + (exact ? 40 : 0) + dc.length * 2 + Math.min(n, 20);
+      if (!best || sc > best.sc) best = { src, prefix: comps.join('/'), matched: k, files: n, sc };
+    }
+    return best;
+  }
+  function commonRoot(paths) {
+    if (!paths.length) return '';
+    let parts = dirOf(paths[0]).split('/').filter(Boolean);
+    for (const p of paths) {
+      const q = dirOf(p).split('/');
+      let i = 0; while (i < parts.length && parts[i] === q[i]) i++;
+      parts = parts.slice(0, i);
+    }
+    return parts.join('/');
+  }
+  // A plan says which folders become which DOS drives, and how to start the game.
+  function makePlan(g, exe, cdMode) {
+    const paths = g.files.map(f => f.path), exeDir = dirOf(exe), prog = exe.split('/').pop();
+    const imgs = paths.filter(n => /\.(cue|iso)$/i.test(n)).sort((a, b) => /\.cue$/i.test(b) - /\.cue$/i.test(a));
+    const hdd = (letter, src) => ({ letter, src, prefix: '', cd: false });
+    const cdOf = (letter, src, prefix) => ({ letter, src, prefix: prefix || '', cd: true });
+    const startIn = (drv) => ({ letter: drv.letter, dir: join(drv.prefix, exeDir.slice(drv.src.length).replace(/^\//, '')) });
+    const under = (src) => !src || exeDir === src || exeDir.startsWith(src + '/');
+    let drives, note, img = null;
+    if (cdMode === 'none') { drives = [hdd('C', exeDir)]; note = 'No CD drive.'; }
+    else if (cdMode === 'dirD') { drives = [hdd('C', exeDir), cdOf('D', exeDir)]; note = 'The game folder is drive C: and also a CD on D:.'; }
+    else if (cdMode === 'dirC') { drives = [cdOf('C', exeDir)]; note = 'The game folder is a CD on C: (read-only).'; }
+    else if (cdMode && cdMode.startsWith('img:')) { drives = [hdd('C', exeDir)]; img = { letter: 'D', path: cdMode.slice(4) }; note = 'Using the CD image ' + img.path.split('/').pop() + ' on D:.'; }
+    else {
+      // automatic: follow the settings files if they mention a path we can find in the archive
+      const dirs = new Set(['']);
+      for (const p of paths) { const c = p.split('/'); for (let i = 1; i < c.length; i++) dirs.add(c.slice(0, i).join('/')); }
+      const fileSet = new Set(paths);
+      const cands = [];
+      for (const r of g.refs || []) {
+        const res = resolveRef(r, dirs, fileSet);
+        if (res) cands.push({ r, res, sc: res.sc + (r.cfg ? 50 : 0) + (r.letter === 'C' || r.letter === 'D' ? 10 : 0) });
+      }
+      cands.sort((a, b) => b.sc - a.sc);
+      const best = cands[0];
+      if (imgs.length) {
+        const letter = best && best.r.letter !== 'C' ? best.r.letter : 'D';
+        drives = [hdd('C', exeDir)]; img = { letter, path: imgs[0] };
+        note = 'Auto: found the CD image ' + imgs[0].split('/').pop() + ' and put it in drive ' + letter + ':.';
+      } else if (best) {
+        const L = best.r.letter, cdDrv = cdOf(L, best.res.src, best.res.prefix);
+        if (L === 'C') {
+          drives = [cdDrv];
+          if (!under(best.res.src)) drives.push(hdd('D', exeDir));
+        } else drives = [hdd('C', exeDir), cdDrv];
+        note = 'Auto: ' + best.r.file.split('/').pop() + ' says the CD is at ' + best.r.text + ', so the folder "' + best.res.src + '" is set up as a CD there.';
+      } else {
+        const root = commonRoot(paths);
+        drives = [cdOf('C', root)];
+        note = 'Auto: no CD path found in the game\'s settings files, so the whole game is set up as a CD on C:. If that doesn\'t work, try the other CD options.';
+      }
+    }
+    const startDrv = drives.find(d => under(d.src)) || drives[0];
+    return { drives, img, start: { ...startIn(startDrv), prog }, note };
+  }
+  function planConf(plan, cycles, label) {
+    const lab = (label || '').toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 11);
+    const lines = ['[sdl]', 'autolock=false', '', '[dosbox]', 'memsize=16', '',
+      '[cpu]', 'core=auto', 'cputype=auto', 'cycles=' + cycles, '', '[autoexec]', '@echo off'];
+    for (const d of plan.drives) lines.push('mount ' + d.letter.toLowerCase() + ' ./drive_' + d.letter + (d.cd ? ' -t cdrom' + (lab ? ' -label ' + lab : '') : ''));
+    if (plan.img) lines.push('imgmount ' + plan.img.letter.toLowerCase() + ' "./drive_C/' + plan.img.path.slice(plan.drives[0].src ? plan.drives[0].src.length + 1 : 0) + '" -t iso');
+    lines.push(plan.start.letter.toLowerCase() + ':');
+    if (plan.start.dir) lines.push('cd \\' + plan.start.dir.split('/').map(dosName).join('\\'));
+    lines.push(plan.start.prog, '');
+    return lines.join('\n');
+  }
+  function planFs(g, plan) {
+    const out = [];
+    for (const d of plan.drives) for (const f of g.files) {
+      if (d.src && !f.path.startsWith(d.src + '/')) continue;
+      out.push({ path: join('drive_' + d.letter, d.prefix, d.src ? f.path.slice(d.src.length + 1) : f.path), contents: f.contents });
+    }
+    // a CD image outside drive C still needs to be reachable
+    if (plan.img && plan.drives[0].src && !plan.img.path.startsWith(plan.drives[0].src + '/')) {
+      for (const f of g.files) if (dirOf(f.path) === dirOf(plan.img.path)) out.push({ path: join('drive_C', f.path.split('/').pop()), contents: f.contents });
+      plan.img.path = join(plan.drives[0].src, plan.img.path.split('/').pop());
+    }
+    return out;
+  }
+
+  // ---------- the settings form ----------
+  let game = null;
+  function showGame(g) {
+    game = g;
+    const sel = $('exe');
+    sel.innerHTML = '';
+    if (g.bundle) sel.innerHTML = '<option value="">Use the bundle\'s own settings</option>';
+    for (const p of g.progs) { const o = document.createElement('option'); o.value = p; o.textContent = p; sel.appendChild(o); }
+    if (g.exe && [...sel.options].some(o => o.value === g.exe)) sel.value = g.exe;
+    if (g.cycles) $('cycles').value = g.cycles;
+    const paths = g.files ? g.files.map(f => f.path) : [];
+    const imgs = paths.filter(n => /\.(cue|iso)$/i.test(n));
+    const cd = $('cd');
+    cd.innerHTML = '<option value="auto">Automatic (recommended)</option><option value="none">No CD drive</option>' +
+      '<option value="dirD">Game folder as a CD on D:</option><option value="dirC">Game folder as a CD on C: (read-only)</option>' +
+      imgs.map(n => '<option value="img:' + n.replace(/"/g, '') + '">' + n.split('/').pop().replace(/</g, '&lt;') + ' as a CD on D:</option>').join('');
+    cd.value = g.cd && [...cd.options].some(o => o.value === g.cd) ? g.cd : 'auto';
+    $('cdLabel').value = g.label || '';
+    $('opts').style.display = (g.progs.length || g.bundle) ? 'block' : 'none';
+    $('techFiles').textContent = paths.slice(0, 400).join('\n') + (paths.length > 400 ? '\n… and ' + (paths.length - 400) + ' more' : '');
+    $('techRefs').textContent = (g.refs || []).length ? g.refs.slice(0, 40).map(r => r.file + ': ' + r.text).join('\n') : 'No drive paths found.';
+    updatePlan();
+    if (!g.progs.length && !g.bundle) info('No .exe, .com or .bat files found in ' + g.name + '.', true);
+    else info(g.name + ' · ' + g.count + ' files');
+  }
+  function updatePlan() {
+    if (!game || (game.bundle && !$('exe').value)) { $('cdNote').textContent = ''; $('techConf').textContent = ''; return null; }
+    const plan = makePlan(game, $('exe').value, $('cd').value);
+    $('cdNote').textContent = plan.note;
+    $('techConf').textContent = planConf(plan, $('cycles').value, $('cdLabel').value.trim()).split('[autoexec]\n')[1];
+    return plan;
+  }
+  ['exe', 'cd', 'cycles'].forEach(id => $(id).addEventListener('change', updatePlan));
+  $('cdLabel').addEventListener('input', updatePlan);
+
+  async function loadFiles(name, files) {
+    files = files.filter(f => f.path && !f.path.endsWith('/'));
+    if (!files.length) throw new Error('The archive is empty.');
+    // drop a single wrapping folder like "__MACOSX"
+    files = files.filter(f => !/^__MACOSX\//.test(f.path));
+    const paths = files.map(f => f.path);
+    return { name, kind: 'files', files, count: files.length, bundle: false, progs: programs(paths), refs: findPathRefs(files) };
+  }
+  $('zipIn').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    info('Reading ' + f.name + '…');
+    try {
+      const buf = await f.arrayBuffer(), u8 = new Uint8Array(buf);
+      const isRar = u8[0] === 0x52 && u8[1] === 0x61 && u8[2] === 0x72 && u8[3] === 0x21; // "Rar!"
+      if (isRar) {
+        info('Unpacking ' + f.name + '…');
+        let files;
+        try { files = await unrar(buf); }
+        catch (err) {
+          const msg = String(err && err.message || err);
+          throw new Error(/volume|part/i.test(msg) ? 'This looks like one part of a multi-part RAR. Unpack it on a computer and zip the folder instead.'
+            : /password|encrypt/i.test(msg) ? 'This RAR is password-protected, which isn\'t supported.'
+            : 'Could not unpack the RAR: ' + msg);
+        }
+        showGame(await loadFiles(f.name, files));
+        return;
+      }
+      const entries = zipEntries(u8);
+      if (entries.some(x => x.name === '.jsdos/dosbox.conf')) {
+        showGame({ name: f.name, kind: 'bundle', zip: u8, count: entries.length, bundle: true, progs: [] });
+        return;
+      }
+      info('Unpacking ' + f.name + '…');
+      showGame(await loadFiles(f.name, await unzip(u8)));
+    } catch (err) { info(err.message || String(err), true); }
+  });
+  $('dirIn').addEventListener('change', async e => {
+    const list = [...e.target.files]; if (!list.length) return;
+    info('Reading ' + list.length + ' files…');
+    const files = [];
+    for (const f of list) files.push({ path: f.webkitRelativePath || f.name, contents: new Uint8Array(await f.arrayBuffer()) });
+    showGame(await loadFiles(files[0].path.split('/')[0] || 'folder', files));
+  });
+
+  // ---------- running ----------
+  let props = null, ci = null, running = null;
+  const changesKey = (g, plan) => 'changes:' + g.name + (plan ? '|' + plan.drives.map(d => d.letter + (d.cd ? 'cd' : '') + ':' + d.src + '>' + d.prefix).join(',') : '');
+  async function play(g, keep) {
+    const exe = $('exe').value, cycles = $('cycles').value, cd = $('cd').value, label = $('cdLabel').value.trim();
+    Object.assign(g, { exe, cycles, cd, label });
+    if (keep) {
+      info('Saving the game on this device…');
+      await kvSet('game', { name: g.name, kind: g.kind, zip: g.zip, files: g.files, count: g.count, bundle: g.bundle, progs: g.progs, refs: g.refs, exe, cycles, cd, label });
+    }
+    const opts = { autoStart: true, kiosk: false, theme: 'dark', onEvent: (ev, c) => { if (ev === 'ci-ready') ci = c; } };
+    let plan = null;
+    if (g.bundle && !exe) {
+      opts.url = URL.createObjectURL(new Blob([g.zip], { type: 'application/zip' }));
+    } else {
+      plan = makePlan(g, exe, cd);
+      opts.initFs = planFs(g, plan);
+      opts.dosboxConf = planConf(plan, cycles, label);
+    }
+    const changes = keep ? await kvGet(changesKey(g, plan)) : null;
+    if (changes) opts.initFs = (opts.initFs || []).concat([new Uint8Array(changes)]);
+    running = { g, keep, plan };
+    $('setup').style.display = 'none';
+    $('player').classList.add('show');
+    $('touch').classList.toggle('show', isTouch);
+    $('saveBtn').style.display = keep ? '' : 'none';
+    const el = document.createElement('div'); el.style.cssText = 'position:absolute;inset:0';
+    $('dos').innerHTML = ''; $('dos').appendChild(el);
+    try { props = Dos(el, opts); }
+    catch (err) { quit(); info('Could not start the emulator: ' + (err.message || err), true); }
+  }
+  async function saveChanges() {
+    if (!ci || !running || !running.keep || typeof ci.persist !== 'function') return false;
+    try {
+      const data = await ci.persist(true);
+      if (data && data.length) { await kvSet(changesKey(running.g, running.plan), data); return true; }
+    } catch (e) { console.warn('persist failed', e); }
+    return false;
+  }
+  async function quit() {
+    await saveChanges();
+    try { if (props) props.stop(); } catch (e) {}
+    props = null; ci = null; running = null;
+    $('dos').innerHTML = '';
+    $('player').classList.remove('show');
+    $('setup').style.display = '';
+    refreshSaved();
+  }
+  $('play').onclick = () => game && play(game, $('keep').checked);
+  $('quitBtn').onclick = quit;
+  $('saveBtn').onclick = async () => {
+    const b = $('saveBtn'), ok = await saveChanges();
+    b.textContent = ok ? 'Saved ✓' : 'Nothing to save';
+    setTimeout(() => { b.textContent = 'Save'; }, 1500);
+  };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveChanges(); });
+
+  async function refreshSaved() {
+    const g = await kvGet('game');
+    $('saved').style.display = g ? 'block' : 'none';
+    if (g) $('playSaved').textContent = 'Open ' + g.name;
+    return g;
+  }
+  $('playSaved').onclick = async () => {
+    let g = await kvGet('game');
+    if (!g) return refreshSaved();
+    try {
+      if (g.zip && !(g.zip instanceof Uint8Array)) g.zip = new Uint8Array(g.zip);
+      if (g.kind === 'zip') { // saved by an older version of this page
+        const keepSet = { exe: g.exe, cycles: g.cycles, label: g.label };
+        g = Object.assign(await loadFiles(g.name, await unzip(g.zip)), keepSet);
+      } else if (g.kind === 'files' && !g.refs) g.refs = findPathRefs(g.files);
+    } catch (err) { info(err.message || String(err), true); return; }
+    if (g.cd === '' || g.cd === 'dirC') g.cd = 'auto';
+    showGame(g);
+    $('keep').checked = true;
+    info(g.name + ' loaded. Check the settings below, then press Play.');
+    $('opts').scrollIntoView({ behavior: 'smooth' });
+  };
+  let forgetArm = 0;
+  $('forget').onclick = async () => {
+    if (forgetArm < Date.now()) { forgetArm = Date.now() + 3000; $('forget').textContent = 'Tap again to remove it and its saves'; setTimeout(() => { $('forget').textContent = 'Remove saved game'; }, 3000); return; }
+    await kv('readwrite', s => s.clear()).catch(() => {});
+    $('forget').textContent = 'Remove saved game';
+    refreshSaved();
+  };
+
+  // ---------- on-screen buttons for phones ----------
+  document.querySelectorAll('#touch .k').forEach(btn => {
+    const code = +btn.dataset.key, ids = new Set();
+    const set = on => { btn.classList.toggle('on', on); if (ci) ci.sendKeyEvent(code, on); };
+    btn.addEventListener('pointerdown', e => { e.preventDefault(); if (!ids.size) set(true); ids.add(e.pointerId); try { btn.setPointerCapture(e.pointerId); } catch (x) {} });
+    const end = e => { if (!ids.delete(e.pointerId)) return; if (!ids.size) set(false); };
+    btn.addEventListener('pointerup', end); btn.addEventListener('pointercancel', end); btn.addEventListener('lostpointercapture', end);
+  });
+  document.addEventListener('contextmenu', e => { if (running) e.preventDefault(); });
+
+  if (typeof Dos !== 'function') info('The emulator did not load. Check your internet connection and reload the page.', true);
+  refreshSaved();
+})();
+</script>
+</body>
+</html>
