@@ -31,6 +31,8 @@
   #player { position: fixed; inset: 0; display: none; background: #000; }
   #player.show { display: block; }
   #dos { position: absolute; inset: 0; }
+  #status { position: absolute; left: 8px; top: 8px; z-index: 30; max-width: calc(100% - 170px); background: rgba(0,0,0,.7); color: #cfe; font: 12px/1.4 ui-monospace, Menlo, monospace; padding: 6px 8px; border-radius: 8px; white-space: pre-wrap; pointer-events: none; }
+  #status.hide { display: none; }
   #bar { position: absolute; top: 8px; right: 8px; z-index: 30; display: flex; gap: 6px; }
   #bar button { height: 36px; padding: 0 12px; border-radius: 9px; border: 0; background: rgba(0,0,0,.55); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
   #touch { position: absolute; left: 0; right: 0; bottom: 0; z-index: 20; display: none; justify-content: space-between; align-items: flex-end;
@@ -102,7 +104,8 @@
 
 <div id="player">
   <div id="dos"></div>
-  <div id="bar"><button id="saveBtn">Save</button><button id="quitBtn">Quit</button></div>
+  <div id="status"></div>
+  <div id="bar"><button id="infoBtn">Info</button><button id="saveBtn">Save</button><button id="quitBtn">Quit</button></div>
   <div id="touch">
     <div class="pad dpad">
       <div></div><div class="k big" data-key="265">▲</div><div></div>
@@ -275,7 +278,7 @@
   }
   // A plan says which folders become which DOS drives, and how to start the game.
   function makePlan(g, exe, cdMode) {
-    const paths = g.files.map(f => f.path), exeDir = dirOf(exe), prog = exe.split('/').pop();
+    const paths = g.files.map(f => f.path), exeDir = dirOf(exe), prog = exe.endsWith('*') ? '' : exe.split('/').pop();
     const imgs = paths.filter(n => /\.(cue|iso)$/i.test(n)).sort((a, b) => /\.cue$/i.test(b) - /\.cue$/i.test(a));
     const hdd = (letter, src) => ({ letter, src, prefix: '', cd: false });
     const cdOf = (letter, src, prefix) => ({ letter, src, prefix: prefix || '', cd: true });
@@ -321,12 +324,13 @@
   function planConf(plan, cycles, label) {
     const lab = (label || '').toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 11);
     const lines = ['[sdl]', 'autolock=false', '', '[dosbox]', 'memsize=16', '',
-      '[cpu]', 'core=auto', 'cputype=auto', 'cycles=' + cycles, '', '[autoexec]', '@echo off'];
+      '[cpu]', 'core=auto', 'cputype=auto', 'cycles=' + cycles, '', '[autoexec]'];
     for (const d of plan.drives) lines.push('mount ' + d.letter.toLowerCase() + ' ./drive_' + d.letter + (d.cd ? ' -t cdrom' + (lab ? ' -label ' + lab : '') : ''));
     if (plan.img) lines.push('imgmount ' + plan.img.letter.toLowerCase() + ' "./drive_C/' + plan.img.path.slice(plan.drives[0].src ? plan.drives[0].src.length + 1 : 0) + '" -t iso');
     lines.push(plan.start.letter.toLowerCase() + ':');
     if (plan.start.dir) lines.push('cd \\' + plan.start.dir.split('/').map(dosName).join('\\'));
-    lines.push(plan.start.prog, '');
+    if (plan.start.prog) lines.push(plan.start.prog); else lines.push('dir /w');
+    lines.push('');
     return lines.join('\n');
   }
   function planFs(g, plan) {
@@ -351,6 +355,7 @@
     sel.innerHTML = '';
     if (g.bundle) sel.innerHTML = '<option value="">Use the bundle\'s own settings</option>';
     for (const p of g.progs) { const o = document.createElement('option'); o.value = p; o.textContent = p; sel.appendChild(o); }
+    if (g.progs.length) { const o = document.createElement('option'); o.value = g.progs[0].replace(/[^/]*$/, '') + '*'; o.textContent = 'Just the DOS prompt (for checking)'; sel.appendChild(o); }
     if (g.exe && [...sel.options].some(o => o.value === g.exe)) sel.value = g.exe;
     if (g.cycles) $('cycles').value = g.cycles;
     const paths = g.files ? g.files.map(f => f.path) : [];
@@ -423,7 +428,14 @@
   });
 
   // ---------- running ----------
-  let props = null, ci = null, running = null;
+  let props = null, ci = null, running = null, statusLines = [], statusTimer = null;
+  function status(t) {
+    statusLines.push(t); if (statusLines.length > 8) statusLines.shift();
+    $('status').textContent = statusLines.join('\n');
+  }
+  window.addEventListener('error', e => { if (running) status('Error: ' + (e.message || e)); });
+  window.addEventListener('unhandledrejection', e => { if (running) status('Error: ' + ((e.reason && e.reason.message) || e.reason)); });
+  $('infoBtn').onclick = () => $('status').classList.toggle('hide');
   const changesKey = (g, plan) => 'changes:' + g.name + (plan ? '|' + plan.drives.map(d => d.letter + (d.cd ? 'cd' : '') + ':' + d.src + '>' + d.prefix).join(',') : '');
   async function play(g, keep) {
     const exe = $('exe').value, cycles = $('cycles').value, cd = $('cd').value, label = $('cdLabel').value.trim();
@@ -432,7 +444,20 @@
       info('Saving the game on this device…');
       await kvSet('game', { name: g.name, kind: g.kind, zip: g.zip, files: g.files, count: g.count, bundle: g.bundle, progs: g.progs, refs: g.refs, exe, cycles, cd, label });
     }
-    const opts = { autoStart: true, kiosk: false, theme: 'dark', onEvent: (ev, c) => { if (ev === 'ci-ready') ci = c; } };
+    statusLines = []; $('status').classList.remove('hide');
+    status('Starting the emulator…');
+    const opts = { autoStart: true, kiosk: false, theme: 'dark', onEvent: (ev, c) => {
+      status('js-dos: ' + ev);
+      if (ev === 'ci-ready') {
+        ci = c;
+        status('Emulator running (' + c.width() + '×' + c.height() + ')');
+        clearInterval(statusTimer);
+        statusTimer = setInterval(async () => {
+          if (!ci) return;
+          try { const p = await ci.getRunningProgram(); if (p !== statusTimer.last) { statusTimer.last = p; status('Running: ' + (p || 'DOS prompt')); } } catch (e) {}
+        }, 1500);
+      }
+    } };
     let plan = null;
     if (g.bundle && !exe) {
       opts.url = URL.createObjectURL(new Blob([g.zip], { type: 'application/zip' }));
@@ -440,6 +465,7 @@
       plan = makePlan(g, exe, cd);
       opts.initFs = planFs(g, plan);
       opts.dosboxConf = planConf(plan, cycles, label);
+      status('Files: ' + opts.initFs.length + ' · ' + plan.note.replace(/^Auto: /, ''));
     }
     const changes = keep ? await kvGet(changesKey(g, plan)) : null;
     if (changes) opts.initFs = (opts.initFs || []).concat([new Uint8Array(changes)]);
@@ -450,7 +476,8 @@
     $('saveBtn').style.display = keep ? '' : 'none';
     const el = document.createElement('div'); el.style.cssText = 'position:absolute;inset:0';
     $('dos').innerHTML = ''; $('dos').appendChild(el);
-    try { props = Dos(el, opts); }
+    if (typeof Dos !== 'function') { status('Error: the js-dos emulator did not load (no internet, or it was blocked).'); return; }
+    try { props = Dos(el, opts); status('Player created, loading DOSBox…'); setTimeout(() => { if (!ci && running) status('Still loading after 20 s. The emulator download may be slow or blocked.'); }, 20000); }
     catch (err) { quit(); info('Could not start the emulator: ' + (err.message || err), true); }
   }
   async function saveChanges() {
@@ -464,7 +491,7 @@
   async function quit() {
     await saveChanges();
     try { if (props) props.stop(); } catch (e) {}
-    props = null; ci = null; running = null;
+    props = null; ci = null; running = null; clearInterval(statusTimer);
     $('dos').innerHTML = '';
     $('player').classList.remove('show');
     $('setup').style.display = '';
